@@ -17,8 +17,8 @@ def web_search(query: str, max_results: int = 5):
             json={
                 "api_key": key,
                 "query": query,
-                "max_results": max_results,
-                "search_depth": "advanced",
+                "max_results": 3,
+                "search_depth": "basic",
             },
             timeout=25,
         )
