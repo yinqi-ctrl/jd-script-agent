@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>这份工作能去吗？· JD→短视频脚本</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f5f6f8; color: #1f2329; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #8a8f99; font-size: 13px; margin-bottom: 18px; }
+  textarea { width: 100%; height: 150px; padding: 12px; border: 1px solid #d0d3d9;
+             border-radius: 10px; font-size: 14px; resize: vertical; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
+  button { background: #2f6bff; color: #fff; border: 0; padding: 11px 22px; border-radius: 10px;
+           font-size: 15px; cursor: pointer; }
+  button:disabled { background: #aab4c8; cursor: not-allowed; }
+  .meta { font-size: 12px; color: #8a8f99; }
+  .card { background: #fff; border-radius: 12px; padding: 18px 20px; margin-top: 16px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px;
+           background: #eef3ff; color: #2f6bff; margin-left: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid #e6e8eb; padding: 8px; text-align: left; vertical-align: top; }
+  th { background: #fafbfc; }
+  .score-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .score-item { background: #fafbfc; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+  .score-item b { color: #2f6bff; }
+  .verdict { font-size: 15px; font-weight: 600; margin: 6px 0 14px; }
+  .compliance li { margin: 4px 0; }
+  .err { color: #e54545; }
+  .loading { color: #2f6bff; font-size: 14px; }
+  pre { white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>这份工作能去吗？<span class="badge">JD → 短视频脚本</span></h1>
+  <div class="sub">粘贴一条 JD，先做选题价值评估（六维评分 + 等级 + 内容方向），达 S/A 级再决定是否生成竖版分镜脚本</div>
+
+  <textarea id="jd" placeholder="例：&#10;【岗位名称】数据运营&#10;【公司】某电商中台&#10;【工作地点】杭州&#10;【薪资】12-20K&#10;【岗位职责】埋点设计、漏斗分析、ROI复盘&#10;【任职要求】熟悉 SQL/Python"></textarea>
+
+  <div class="row">
+    <button id="btn" onclick="generate()">评估选题价值</button>
+    <button id="copyBtn" onclick="copyScript()" style="background:#fff;color:#2f6bff;border:1px solid #2f6bff;">复制脚本</button>
+    <span class="meta" id="meta"></span>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+let lastJd = '';
+let lastScore = null;
+let lastData = null;
+let reviseHistory = [];
+
+async function generate() {
+  const jd = document.getElementById('jd').value.trim();
+  const out = document.getElementById('out');
+  const btn = document.getElementById('btn');
+  if (!jd) { out.innerHTML = '<div class="card err">请先粘贴 JD。</div>'; return; }
+  btn.disabled = true; out.innerHTML = '<div class="card loading">正在评估选题价值（MODEL-001 六维评分）…</div>';
+  try {
+    const res = await fetch('/api/score', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({jd})
+    });
+    const data = await res.json();
+    btn.disabled = false;
+    if (data.status === 'error') { out.innerHTML = `<div class="card err">${data.msg}</div>`; return; }
+    if (data.type === 'intro') { out.innerHTML = `<div class="card"><pre>${data.msg}</pre></div>`; return; }
+    if (data.type === 'reject') { out.innerHTML = `<div class="card err"><b>${data.msg}</b></div>`; return; }
+    lastJd = jd; lastScore = data; lastData = null; reviseHistory = [];
+    renderScore(data);
+  } catch(e) {
+    btn.disabled = false;
+    out.innerHTML = `<div class="card err">请求失败：${e}</div>`;
+  }
+}
+
+function renderScore(d) {
+  const labels = {d1:'D1 点击动机',d2:'D2 应届相关',d3:'D3 认知差',d4:'D4 讨论张力',d5:'D5 可拆解',d6:'D6 实用增量'};
+  const weights = {d1:'35%',d2:'10%',d3:'25%',d4:'15%',d5:'10%',d6:'5%'};
+  let scoreHtml = '<div class="score-grid">';
+  for (const k of Object.keys(d.scores)) {
+    const ev = (d.score_evidence && d.score_evidence[k]) ? `<div class="meta" style="margin-top:4px;">${d.score_evidence[k]}</div>` : '';
+    scoreHtml += `<div class="score-item">${labels[k]} <span class="meta">(${weights[k]})</span><br><b>${d.scores[k]}</b> / 5${ev}</div>`;
+  }
+  scoreHtml += '</div>';
+  const rows = d.grade === 'S' ? 12 : (d.grade === 'A' ? 10 : 8);
+  const good = (d.grade === 'S' || d.grade === 'A');
+  const decision = good
+    ? `<div class="meta" style="margin-bottom:10px;">✅ 选题价值达标，建议制作。点击后开始检索知识库 + 联网 + 生成脚本（约需 1-2 分钟）。</div>
+       <button onclick="genScript()">生成脚本（${d.grade}级 · ${rows}镜头 · ≥${rows * 10}s）</button>`
+    : `<div class="meta" style="margin-bottom:10px;">⚠️ 选题价值较低（${d.grade}级），通常不建议投入制作——这正是本智能体的守门结论。如你仍想要脚本，可强制生成。</div>
+       <button onclick="genScript()" style="background:#fff;color:#c0392b;border:1px solid #c0392b;">仍要生成脚本（${d.grade}级 · ${rows}镜头）</button>`;
+  document.getElementById('out').innerHTML = `
+  <div class="card">
+    <div class="verdict">综合得分 <b>${d.total}</b> · 等级 <b>${d.grade}</b> · 【内容方向】${d.direction}</div>
+    ${scoreHtml}
+  </div>
+  <div class="card"><h3>制作决策</h3>${decision}</div>`;
+  document.getElementById('meta').textContent = `评估时间 ${new Date().toLocaleString()}`;
+}
+
+async function genScript() {
+  const out = document.getElementById('out');
+  if (!lastJd || !lastScore) { alert('请先评估 JD'); return; }
+  out.insertAdjacentHTML('beforeend', '<div class="card" id="genStatus"><span class="loading">正在检索知识库 + 联网 + 生成脚本…（等级越高镜头越多，请耐心等待）</span></div>');
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({jd: lastJd, score: lastScore})
+    });
+    const data = await res.json();
+    if (data.status === 'error') {
+      document.getElementById('genStatus').innerHTML = `<span class="err">${data.msg}</span>`;
+      return;
+    }
+    lastData = data;
+    renderResult(data);
+    window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+  } catch(e) {
+    const el = document.getElementById('genStatus');
+    if (el) el.innerHTML = `<span class="err">请求失败：${e}</span>`;
+  }
+}
+
+function renderResult(d) {
+  const labels = {d1:'D1 点击动机',d2:'D2 应届相关',d3:'D3 认知差',d4:'D4 讨论张力',d5:'D5 可拆解',d6:'D6 实用增量'};
+  const weights = {d1:'35%',d2:'10%',d3:'25%',d4:'15%',d5:'10%',d6:'5%'};
+  let scoreHtml = '<div class="score-grid">';
+  for (const k of Object.keys(d.scores)) {
+    const ev = (d.score_evidence && d.score_evidence[k]) ? `<div class="meta" style="margin-top:4px;">${d.score_evidence[k]}</div>` : '';
+    scoreHtml += `<div class="score-item">${labels[k]} <span class="meta">(${weights[k]})</span><br><b>${d.scores[k]}</b> / 5${ev}</div>`;
+  }
+  scoreHtml += '</div>';
+
+  let scriptRows = '';
+  d.script.forEach(r => {
+    scriptRows += `<tr><td>${r.time}</td><td>${r.shot||'-'}</td><td>${r.voice||'-'}</td><td>${r.subtitle||'-'}</td><td>${r.tone||'-'}</td></tr>`;
+  });
+
+  let verRows = '';
+  d.verification.forEach(r => {
+    verRows += `<tr><td>${r.dimension}</td><td>${r.content}</td><td>${r.source}</td><td>${r.date}</td></tr>`;
+  });
+
+  let compLi = d.compliance.map(c => `<li>${c}</li>`).join('');
+
+  const histHtml = reviseHistory.length
+    ? `<div class="meta" style="margin-top:10px;">已按 ${reviseHistory.length} 条指令修改：${reviseHistory.map(h => `「${h}」`).join('')}</div>`
+    : '';
+  const reviseBox = `
+  <div class="card">
+    <h3>对话修改</h3>
+    <div class="meta" style="margin-bottom:8px;">对结果提修改要求，例如：「第3镜口播改口语一点」「把方法论镜头换成避坑视角」「薪资部分展开实习和正式的差别」</div>
+    <div style="display:flex;gap:10px;">
+      <input id="reviseInput" placeholder="输入修改指令，回车或点按钮提交" style="flex:1;padding:10px 12px;border:1px solid #d0d3d9;border-radius:10px;font-size:14px;" onkeydown="if(event.key==='Enter')revise()">
+      <button id="reviseBtn" onclick="revise()">按指令修改</button>
+    </div>
+    <div id="reviseStatus" style="margin-top:8px;"></div>
+    ${histHtml}
+  </div>`;
+
+  const html = `
+  <div class="card">
+    <div class="verdict">综合得分 <b>${d.total}</b> · 等级 <b>${d.grade}</b> · 【内容方向】${d.direction}</div>
+    ${scoreHtml}
+  </div>
+  <div class="card">
+    <h3>竖版分镜脚本（${d.grade}级）</h3>
+    <table>
+      <thead><tr><th>时长</th><th>画面镜头</th><th>口播台词</th><th>屏幕字幕</th><th>节奏·语气</th></tr></thead>
+      <tbody>${scriptRows}</tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h3>信息核验表</h3>
+    <table>
+      <thead><tr><th>信息维度</th><th>核验内容</th><th>来源</th><th>检索日期</th></tr></thead>
+      <tbody>${verRows}</tbody>
+    </table>
+    <div class="meta" style="margin-top:8px;">知识库命中：${d.kb_files.join('、')||'无'} ｜ 联网搜索：${d.search_used?'已启用':'未启用'}</div>
+  </div>
+  <div class="card">
+    <h3>合规备注</h3>
+    <ul class="compliance">${compLi}</ul>
+  </div>
+  ${reviseBox}`;
+  document.getElementById('out').innerHTML = html;
+  document.getElementById('meta').textContent = `生成时间 ${new Date().toLocaleString()}`;
+}
+
+async function revise() {
+  const input = document.getElementById('reviseInput');
+  const status = document.getElementById('reviseStatus');
+  const btn = document.getElementById('reviseBtn');
+  const instruction = input.value.trim();
+  if (!instruction) return;
+  if (!lastData) { status.innerHTML = '<span class="err">请先生成脚本</span>'; return; }
+  btn.disabled = true;
+  status.innerHTML = '<span class="loading">正在按指令修改脚本…</span>';
+  try {
+    const res = await fetch('/api/revise', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({jd: lastJd, instruction, result: lastData})
+    });
+    const data = await res.json();
+    if (data.status === 'error') {
+      btn.disabled = false;
+      status.innerHTML = `<span class="err">${data.msg}</span>`;
+      return;
+    }
+    reviseHistory.push(instruction);
+    lastData = data;
+    renderResult(data);
+    window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+  } catch(e) {
+    btn.disabled = false;
+    status.innerHTML = `<span class="err">请求失败：${e}</span>`;
+  }
+}
+
+function copyScript() {
+  if (!lastData || !lastData.script || !lastData.script.length) {
+    alert('请先生成脚本');
+    return;
+  }
+  const lines = [['时长', '画面镜头', '口播台词', '屏幕字幕', '节奏·语气'].join('\t')];
+  for (const r of lastData.script) {
+    lines.push([r.time, r.shot, r.voice, r.subtitle, r.tone]
+      .map(v => (v || '').replace(/[\t\n]+/g, ' ')).join('\t'));
+  }
+  navigator.clipboard.writeText(lines.join('\n')).then(() => alert('已复制脚本分镜表，可直接粘贴到 Excel / 飞书表格'));
+}
+</script>
+</body>
+</html>

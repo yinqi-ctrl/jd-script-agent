@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: jd-script-agent
+    runtime: python
+    rootDirectory: web_app
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.siliconflow.cn/v1
+      - key: LLM_MODEL
+        value: deepseek-ai/DeepSeek-V3
+      - key: TAVILY_API_KEY
+        sync: false
