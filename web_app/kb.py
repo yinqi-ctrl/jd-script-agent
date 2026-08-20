@@ -21,27 +21,10 @@ CATEGORY_KW = [
 
 
 def load_kb(kb_dir: str = None):
-    """加载核心知识库文件（评分模型/脚本模板/行业趋势），跳过全部 JD 和体验数据库以减少内存占用。"""
+    """返回 [{file, text}] 列表，已剥离 frontmatter。"""
     kb_dir = kb_dir or os.environ.get("KB_DIR", DEFAULT_KB_DIR)
-    # 只加载核心文件：评分模型、脚本模板、行业趋势、覆盖范围、案例库（按需）
-    include_patterns = [
-        "*规则库*", "*评分*", "*MODEL*",
-        "*脚本模板*", "*ST-*", "*写作*",
-        "*行业趋势*", "*IND-*",
-        "*覆盖范围*", "*案例库*", "*CASE-*",
-    ]
     docs = []
     for fp in glob.glob(os.path.join(kb_dir, "**", "*.md"), recursive=True):
-        # 跳过 JD 数据库和真实体验数据库（文件大、数量多，内存杀手）
-        if "岗位JD数据库" in fp or "真实体验数据库" in fp:
-            continue
-        fname = os.path.basename(fp)
-        matched = any(
-            re.search(p.replace("*", ".*"), fname) or re.search(p.replace("*", ".*"), fp)
-            for p in include_patterns
-        )
-        if not matched:
-            continue
         try:
             with open(fp, encoding="utf-8") as f:
                 text = f.read()
@@ -49,7 +32,7 @@ def load_kb(kb_dir: str = None):
             continue
         # 去掉 YAML frontmatter
         text = re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, flags=re.S)
-        docs.append({"file": fname, "text": text})
+        docs.append({"file": os.path.basename(fp), "text": text})
     return docs
 
 

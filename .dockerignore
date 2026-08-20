@@ -1,0 +1,6 @@
+.git
+__pycache__
+*.pyc
+*.env
+.workbuddy
+扣子部署包
